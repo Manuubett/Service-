@@ -1,59 +1,43 @@
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const admin = require('firebase-admin');
-
-const app = express();
-app.use(cors());
-app.use(bodyParser.json());
-
-// Firebase Admin SDK init
-const serviceAccount = require('./serviceAccountKey.json');
+const express = require("express");
+const cors = require("cors");
+const admin = require("firebase-admin");
+const serviceAccount = require("./serviceAccountKey.json");
 
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: "https://prediction-94bf9-default-rtdb.firebaseio.com"
 });
 
 const db = admin.firestore();
+const app = express();
 
-// POST route to receive payment
-app.post('/verify-payment', async (req, res) => {
-  const { message, selectedAmount } = req.body;
+app.use(cors());
+app.use(express.json());
 
-  if (!message || !selectedAmount) {
-    return res.status(400).json({ error: 'Missing message or amount' });
+// Save payment verification data
+app.post("/api/save-payment", async (req, res) => {
+  const { phone, message, amount } = req.body;
+
+  if (!phone || !message || !amount) {
+    return res.status(400).json({ error: "Missing required fields" });
   }
-
-  // Basic verification
-  if (!message.toLowerCase().includes('confirmed') || !message.includes(`Ksh${selectedAmount}`)) {
-    return res.status(400).json({ error: 'Invalid or mismatched payment message.' });
-  }
-
-  // Try extract phone number
-  const phoneMatch = message.match(/\b07\d{8}\b/);
-  const phone = phoneMatch ? phoneMatch[0] : 'Unknown';
-
-  const durationHours = amountToHours(selectedAmount);
-
-  const paymentData = {
-    phone,
-    message,
-    amount: `Ksh${selectedAmount}`,
-    date: new Date().toISOString(),
-    durationHours,
-  };
 
   try {
-    await db.collection('payments').add(paymentData);
-    return res.status(200).json({ success: true, message: 'Payment verified and saved.', durationHours });
+    await db.collection("verifiedUsers").add({
+      phone,
+      message,
+      amount,
+      timestamp: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    res.status(200).json({ success: true, message: "Payment saved" });
   } catch (err) {
-    return res.status(500).json({ error: 'Error saving payment: ' + err.message });
+    console.error("Error saving payment:", err);
+    res.status(500).json({ error: "Failed to save payment" });
   }
 });
 
-function amountToHours(amount) {
-  const map = { "50": 2, "80": 4, "110": 6, "160": 12, "210": 24 };
-  return map[amount] || 0;
-}
-
-app.listen(3000, () => console.log('Server running on http://localhost:3000'));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("Server running on port", PORT);
+});
